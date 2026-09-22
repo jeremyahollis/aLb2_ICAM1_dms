@@ -1,0 +1,281 @@
+---
+title: "lfa1lib_binding_kd"
+output: html_document
+date: "2025-01-17"
+---
+
+rm(lib); rm(bin); rm(ratio); rm(meanbin_out); rm(totalcount_out); rm(bin1_in); rm(bin2_in); rm(bin3_in); rm(bin4_in); rm(counts); rm(counts_lib1); rm(counts_lib2); rm(barcode_runs); rm(dt); rm(p1); rm(samples_TiteSeq); rm(duplicates); rm(samples_TiteSeq_lib1); rm(samples_TiteSeq_lib2); rm(config); rm(i); rm(installed_packages); rm(packages); rm(calc.MLmean); rm(bg); rm(cutoff); rm(median.nMSR); rm(threshold); rm(calc.meanbin); rm(fit.titration); rm(plot.titration); rm(dt_bind); rm(dt_expr); rm(dt_mutant_bind); rm(aa); rm(aas); rm(pos); rm(split_mut); rm(wt); rm(subset_dt); rm(dt_mutant); rm(model); rm(ref_bind); rm(ref_expr); rm(x); rm(y); rm(dt_final); rm(p); rm(temp); rm(guide_axis_label_trans); rm(guide_train.guide_axis_trans); rm(df); rm(dt2); rm(dtfinal_diff); rm(dtfinaldiff); rm(p2); rm(pos_avg); rm(split_point)
+
+require("knitr")
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(dev.args = list(png = list(type = "cairo")))
+
+#list of packages to install/load
+packages = c("yaml","data.table","tidyverse","gridExtra")
+#install any packages not already installed
+installed_packages <- packages %in% rownames(installed.packages())
+if(any(installed_packages == F)){
+  install.packages(packages[!installed_packages])
+}
+#load packages
+invisible(lapply(packages, library, character.only=T))
+
+config <- read_yaml("config.yaml")
+
+#make output directory
+if(!file.exists(config$Titeseq_Kds_dir)){
+  dir.create(file.path(config$Titeseq_Kds_dir))
+}
+
+sessionInfo()
+
+#read dataframe with list of barcode runs
+barcode_runs <- read.csv(file=config$barcode_runs,stringsAsFactors=F); barcode_runs <- subset(barcode_runs, select=-c(R1))
+
+#eliminate rows from barcode_runs that are not from an tite-seq experiment
+barcode_runs <- barcode_runs[barcode_runs$sample_type == "TiteSeq",]
+
+#read file giving count of each barcode in each sort partition
+counts <- data.table(read.csv(file=config$variant_counts_file,stringsAsFactors=F))
+
+#eliminate rows from counts that are not part of an titration bin sample
+counts <- subset(counts, sample %in% barcode_runs[barcode_runs$sample_type=="TiteSeq","sample"])
+
+#read in barcode-variant lookup tables
+dt <- data.table(read.csv(file=config$codon_variant_table_file_aLIHA,stringsAsFactors=F))
+
+duplicates <- dt[duplicated(dt,by=c("barcode","library")),.(library,barcode)] 
+
+dt <- merge(counts, dt, by=c("library","barcode"))
+
+#make tables giving names of Titeseq samples and the corresponding ICAM1 incubation concentrations
+samples_TiteSeq <- data.frame(sample=unique(paste(barcode_runs$sample_type,formatC(barcode_runs$concentration, width=2,flag="0"),sep="_")),conc=c(9*10^-5, 3.16*10^-5, 10^-6, 3.16*10^-6, 10^-7, 3.16*10^-7, 10^-8, 3.16*10^-8, 10^-9, 3.16*10^-9, 10^-10))
+
+#for each bin, normalize the read counts to the observed ratio of cell recovery among bins
+for(i in 1:nrow(barcode_runs)){
+  lib <- as.character(barcode_runs$library[i])
+  bin <- as.character(barcode_runs$sample[i])
+  ratio <- sum(dt[library==lib & sample==bin,"count"])/barcode_runs$number_cells[i]
+  if(ratio<1){ #if there are fewer reads from a FACS bin than cells sorted
+    dt[library==lib & sample==bin, count.norm := as.numeric(count)] #don't normalize cell counts, make count.norm the same as count
+    print(paste("reads < cells for",lib,bin,", un-normalized (ratio",ratio,")")) #print to console to inform of undersampled bins
+  }else{
+    dt[library==lib & sample==bin, count.norm := as.numeric(count/ratio)] #normalize read counts by the average read:cell ratio, report in new "count.norm" column
+    print(paste("read:cell ratio for",lib,bin,"is",ratio))
+  }
+}
+
+#annotate each barcode as to whether it's a homolog variant, SARS-CoV-2 wildtype, synonymous muts only, stop, nonsynonymous, >1 nonsynonymous mutations
+dt[,variant_class:=as.character(NA)]
+dt[n_codon_substitutions==0, variant_class := "wildtype"]
+dt[n_codon_substitutions > 0 & n_aa_substitutions==0, variant_class := "synonymous"]
+dt[n_aa_substitutions>0 & grepl("*",aa_substitutions,fixed=T), variant_class := "stop"]
+dt[n_aa_substitutions == 1 & !grepl("*",aa_substitutions,fixed=T), variant_class := "1 nonsynonymous"]
+dt[n_aa_substitutions > 1 & !grepl("*",aa_substitutions,fixed=T), variant_class := ">1 nonsynonymous"]
+
+#cast the data frame into wide format
+dt <- dcast(dt, library + barcode + variant_class + aa_substitutions + n_aa_substitutions ~ sample, value.var="count.norm")
+
+#function that returns mean bin and sum of counts for four bins cell counts. Includes cutoffs for bimodal sample splits to filter out
+calc.meanbin <- function(vec, split13filter=0.4, split24filter=0.4, split14filter=0.4){
+  total <- sum(vec)
+  if(is.na(total) | (vec[1] > split13filter*total & vec[3] > split13filter*total) | 
+     (vec[2] > split24filter*total & vec[4] > split24filter*total) | 
+     (vec[1] > split14filter*total & vec[4] > split14filter*total)){
+    return(list(as.numeric(NA), as.numeric(NA)))  # ← typed NAs
+  }else{
+    return(list(
+      (vec[1]*1+vec[2]*2+vec[3]*3+vec[4]*4)/(vec[1]+vec[2]+vec[3]+vec[4]), 
+      total
+    ))
+  }
+}
+  
+
+#iterate through Titeseq samples, compute mean_bin and total_count for each barcode variant
+for(i in 1:nrow(samples_TiteSeq)){ #iterate through titeseq sample (concentration)
+  meanbin_out <- paste(samples_TiteSeq[i,"sample"],"_meanbin",sep="") #define the header name for the meanbin output for the given concentration sample
+  totalcount_out <- paste(samples_TiteSeq[i,"sample"],"_totalcount",sep="") #define the header name for the total cell count output for the given concentration sample
+  bin1_in <- paste(samples_TiteSeq[i,"sample"],"_bin1",sep="") #define the header names for the input cell counts for bins1-4 of the given concnetration sample
+  bin2_in <- paste(samples_TiteSeq[i,"sample"],"_bin2",sep="")
+  bin3_in <- paste(samples_TiteSeq[i,"sample"],"_bin3",sep="")
+  bin4_in <- paste(samples_TiteSeq[i,"sample"],"_bin4",sep="")
+  dt[,c(meanbin_out,totalcount_out) := calc.meanbin(c(get(bin1_in),get(bin2_in),get(bin3_in),get(bin4_in))),by=c("barcode","library")]
+}
+
+#For QC and filtering, output columns giving the average number of cells that were sampled for a barcode across the 11 sample concentrations, and a value for the number of meanbin estimates that were removed for being below the # of cells cutoff
+cutoff <- 2
+dt[,TiteSeq_avgcount := mean(c(TiteSeq_01_totalcount,TiteSeq_02_totalcount,TiteSeq_03_totalcount,TiteSeq_04_totalcount,TiteSeq_05_totalcount,TiteSeq_06_totalcount,TiteSeq_07_totalcount,TiteSeq_08_totalcount,
+                                TiteSeq_09_totalcount,TiteSeq_10_totalcount,TiteSeq_11_totalcount),na.rm=T),by=c("library","barcode")]
+
+#number of concentrations at which meanbin is calculated from < cutoff cells or is missing b/c filtered for bimodality
+dt[,TiteSeq_min_cell_filtered := sum(c(c(TiteSeq_01_totalcount,TiteSeq_02_totalcount,TiteSeq_03_totalcount,TiteSeq_04_totalcount,
+                                        TiteSeq_05_totalcount,TiteSeq_06_totalcount,TiteSeq_07_totalcount,TiteSeq_08_totalcount,
+                                        TiteSeq_09_totalcount,TiteSeq_10_totalcount,TiteSeq_11_totalcount)<cutoff,is.na(c(TiteSeq_01_totalcount,TiteSeq_02_totalcount,TiteSeq_03_totalcount,TiteSeq_04_totalcount,
+                                                                             TiteSeq_05_totalcount,TiteSeq_06_totalcount,TiteSeq_07_totalcount,TiteSeq_08_totalcount,
+                                                                             TiteSeq_09_totalcount,TiteSeq_10_totalcount,TiteSeq_11_totalcount))),na.rm=T),by=c("library","barcode")]
+
+#function that fits a nls regression to the titration series, including an option to filter below certain thresholds for average cells across all samples, and number of samples below a cutoff of cells
+fit.titration <- function(y.vals,x.vals,count.vals,min.cfu=cutoff,
+                          min.means=0.8,min.average=cutoff,Kd.start=1e-9,
+                          a.start=3,a.lower=2,a.upper=3,
+                          b.start=1,b.lower=1,b.upper=1.5){
+  indices <- count.vals>min.cfu & !is.na(y.vals)
+  y <- y.vals[indices]
+  x <- x.vals[indices]
+  if((length(y) < min.means*length(y.vals)) | (mean(count.vals,na.rm=T) < min.average)){ #return NAs if < min.means fraction of concentrations have above min.cfu counts or if the average count across all concentrations is below min.average
+    return(list(as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA)))
+  }else{
+    fit <- nls(y ~ a*(x/(x+Kd))+b,
+               start=list(a=a.start,b=b.start,Kd=Kd.start),
+               lower=list(a=a.lower,b=b.lower,Kd=min(x.vals[x.vals>0])/100), #constrain Kd to be no lower than 1/100x the lowest concentration value
+               upper=list(a=a.upper,b=b.upper,Kd=max(x.vals[x.vals>0])*10), #constrain Kd to be no higher than the 10x highest concentration value
+               algorithm="port")
+    y.pred <- predict(fit,newdata=list(x=x))
+    resid <- y - y.pred
+    resid.norm <- resid/as.numeric(summary(fit)$coefficients["a","Estimate"])
+    nMSR <- mean((resid.norm)^2,na.rm=T)
+    return(list(as.numeric(summary(fit)$coefficients["Kd","Estimate"]),
+                as.numeric(summary(fit)$coefficients["Kd","Std. Error"]),
+                as.numeric(summary(fit)$coefficients["a","Estimate"]),
+                as.numeric(summary(fit)$coefficients["b","Estimate"]),
+                as.numeric(nMSR)))
+  }
+}
+
+#fit titration to ICAM1 Titeseq data for each barcode
+dt[library=="pool1",
+   c("Kd_ICAM1","Kd_SE_ICAM1","response_ICAM1","baseline_ICAM1","nMSR_ICAM1") :=
+     tryCatch(fit.titration(
+       y.vals=c(TiteSeq_01_meanbin, TiteSeq_02_meanbin, TiteSeq_03_meanbin, TiteSeq_04_meanbin,
+                TiteSeq_05_meanbin, TiteSeq_06_meanbin, TiteSeq_07_meanbin, TiteSeq_08_meanbin,
+                TiteSeq_09_meanbin, TiteSeq_10_meanbin, TiteSeq_11_meanbin),
+       x.vals=samples_TiteSeq$conc,
+       count.vals=c(TiteSeq_01_totalcount, TiteSeq_02_totalcount, TiteSeq_03_totalcount, TiteSeq_04_totalcount,
+                    TiteSeq_05_totalcount, TiteSeq_06_totalcount, TiteSeq_07_totalcount,
+                    TiteSeq_08_totalcount, TiteSeq_09_totalcount, TiteSeq_10_totalcount, TiteSeq_11_totalcount)),
+              error=function(e){list(as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA))}),
+   by=c("library","barcode")]
+              
+dt[library=="pool2",
+   c("Kd_ICAM1","Kd_SE_ICAM1","response_ICAM1","baseline_ICAM1","nMSR_ICAM1") :=
+     tryCatch(fit.titration(
+       y.vals=c(TiteSeq_01_meanbin, TiteSeq_02_meanbin, TiteSeq_03_meanbin, TiteSeq_04_meanbin,
+                TiteSeq_05_meanbin, TiteSeq_06_meanbin, TiteSeq_07_meanbin, TiteSeq_08_meanbin,
+                TiteSeq_09_meanbin, TiteSeq_10_meanbin, TiteSeq_11_meanbin),
+       x.vals=samples_TiteSeq$conc,
+       count.vals=c(TiteSeq_01_totalcount, TiteSeq_02_totalcount, TiteSeq_03_totalcount, TiteSeq_04_totalcount,
+                    TiteSeq_05_totalcount, TiteSeq_06_totalcount, TiteSeq_07_totalcount,
+                    TiteSeq_08_totalcount, TiteSeq_09_totalcount, TiteSeq_10_totalcount, TiteSeq_11_totalcount)),
+              error=function(e){list(as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA))}),
+   by=c("library","barcode")]
+              
+
+par(mfrow=c(2,3))
+hist(log10(dt[library=="pool1" & !is.na(Kd_ICAM1),TiteSeq_avgcount]+0.5),breaks=20,xlim=c(0,5),main="pool1",col="gray50",xlab="average cell count across concentration samples")
+hist(log10(dt[library=="pool1" & is.na(Kd_ICAM1),TiteSeq_avgcount]+0.5),breaks=20,add=T,col="red")
+
+hist(log10(dt[library=="pool2" & !is.na(Kd_ICAM1),TiteSeq_avgcount]+0.5),breaks=20,xlim=c(0,5),main="pool2",col="gray50",xlab="average cell count across concentration samples")
+hist(log10(dt[library=="pool2" & is.na(Kd_ICAM1),TiteSeq_avgcount]+0.5),breaks=20,add=T,col="red")
+
+hist(dt[library=="pool1" & !is.na(Kd_ICAM1),TiteSeq_min_cell_filtered],breaks=5,main="pool1",col="gray50",xlab="number of sample concentrations below cutoff cell number",xlim=c(0,10))
+hist(dt[library=="pool1" & is.na(Kd_ICAM1),TiteSeq_min_cell_filtered],breaks=16,add=T,col="red")
+
+hist(dt[library=="pool2" & !is.na(Kd_ICAM1),TiteSeq_min_cell_filtered],breaks=5,main="pool2",col="gray50",xlab="number of sample concentrations below cutoff cell number",xlim=c(0,10))
+hist(dt[library=="pool2" & is.na(Kd_ICAM1),TiteSeq_min_cell_filtered],breaks=16,add=T,col="red")
+
+#make functions that allow me to plot a titration for any given row from the counts data frames, for spot checking curves
+plot.titration <- function(row,output.text=F){
+  y.vals <- c();for(sample in samples_TiteSeq$sample){y.vals <- c(y.vals,paste(sample,"_meanbin",sep=""))};y.vals <- unlist(dt[row,y.vals,with=F])
+  x.vals <- samples_TiteSeq$conc
+  count.vals <- c();for(sample in samples_TiteSeq$sample){count.vals <- c(count.vals,paste(sample,"_totalcount",sep=""))};count.vals <- unlist(dt[row,count.vals,with=F])
+  if(dt[row,variant_class] %in% c("wildtype","synonymous")){
+    title <- dt[row]
+  }else{
+    title <- paste(dt[row,aa_substitutions])
+  }
+  indices <- count.vals>cutoff & !is.na(count.vals)
+  y.vals <- y.vals[indices]
+  x.vals <- x.vals[indices]
+  plot(x.vals,y.vals,xlab="[ICAM1] (M)",
+       ylab="mean bin",log="x",ylim=c(1,4),xlim=c(1e-13,1e-5),pch=19,main=title)
+  Kd_var <- "Kd_ICAM1"
+  fit <- nls(y.vals ~ a*(x.vals/(x.vals+Kd))+b,
+             start=list(a=3,b=1,Kd=dt[row,get(Kd_var)]),
+             lower=list(a=2,b=1,Kd=1e-15),
+             upper=list(a=3,b=1.5,Kd=1e-5), #constrain Kd to be no higher than the 10x highest concentration value
+             algorithm="port") 
+  if(!is.na(dt[row,get(Kd_var)])){
+    lines(10^c(seq(-13,-5,0.25)),predict(fit,newdata=list(x.vals=10^c(seq(-13,-5,0.25)))))
+    legend("topleft",bty="n",cex=1,legend=paste("Kd",format(dt[row,get(Kd_var)],digits=3),"M"))
+  }
+  if(output.text==T){ #for troubleshooting and interactive work, output some info from the counts table for the given row
+    vars <- c("library","barcode","variant_class","aa_substitutions","TiteSeq_avgcount","TiteSeq_min_cell_filtered","Kd_ICAM1","Kd_SE_ICAM1","baseline_ICAM1","response_ICAM1","nMSR_ICAM1")
+    return(dt[row,..vars])
+  }
+}
+
+par(mfrow=c(1,1))
+hist(log10(dt[library=="pool1",Kd_ICAM1]),col="gray40",breaks=60,xlab="log10(KD), ICAM1 (M)",main="Pool1",xlim=c(-14,-3))
+hist(log10(dt[library=="pool1" & variant_class %in% (c("synonymous","wildtype")),Kd_ICAM1]),col="#92278F",add=T,breaks=60)
+hist(log10(dt[library=="pool2",Kd_ICAM1]),col="gray40",breaks=60,xlab="log10(KD), ICAM1 (M)",main="Pool2",xlim=c(-14,-3))
+hist(log10(dt[library=="pool2" & variant_class %in% (c("synonymous","wildtype")),Kd_ICAM1]),col="#92278F",add=T,breaks=60)
+
+dt[variant_class == "stop",c("Kd_ICAM1","Kd_SE_ICAM1","response_ICAM1","baseline_ICAM1","nMSR_ICAM1") := list(as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA))]
+
+median.nMSR <- median(dt$nMSR_ICAM1,na.rm=T)
+threshold <- 40
+par(mfrow=c(2,2))
+for(bg in c("pool1","pool2")){
+  plot(log10(dt[library==bg,TiteSeq_avgcount]),dt[library==bg,nMSR_ICAM1],main=bg,pch=19,col="#00000010",xlab="average cell count (log10)",ylab="nMSR",xlim=c(0,6),ylim=c(0,0.5))
+  abline(h=threshold*median.nMSR,col="red",lty=2)
+  legend("topleft",bty="n",cex=1,legend=paste(format(100*nrow(dt[library==bg & nMSR_ICAM1 > threshold*median.nMSR & !is.na(nMSR_ICAM1),])/nrow(dt[library==bg & !is.na(nMSR_ICAM1),]),digits=3),"%"))
+}
+
+#remove stop variants, which even if they eke through, either a) still have low counts and give poor fits as a result, or b) seem to be either dubious PacBio calls (lower variant_call_support) or have late stop codons which perhaps don't totally ablate funciton. Either way, the vast majority were purged before this step and we don't want to deal with the remaining ones!
+dt[variant_class == "stop",c("Kd_ICAM1","Kd_SE_ICAM1","response_ICAM1","baseline_ICAM1","nMSR_ICAM1") := list(as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA))]
+
+par(mfrow=c(2,2))
+plot.titration(which(dt$library=="pool1" & dt$Kd_ICAM1 > 1e-11)[10])
+plot.titration(which(dt$library=="pool1" & dt$Kd_ICAM1 > 1e-11)[20])
+plot.titration(which(dt$library=="pool2" & dt$Kd_ICAM1 > 1e-11)[10])
+plot.titration(which(dt$library=="pool2" & dt$Kd_ICAM1 > 1e-11)[20])
+
+dt[nMSR_ICAM1 > threshold*median.nMSR,c("Kd_ICAM1","Kd_SE_ICAM1","response_ICAM1","baseline_ICAM1") := list(as.numeric(NA),as.numeric(NA),as.numeric(NA),as.numeric(NA))]
+
+dt[,log10Ka := -log10(Kd_ICAM1),by=c("barcode","library")]
+
+p1 <- ggplot(dt[!is.na(log10Ka),],aes(x=variant_class,y=log10Ka))+
+  geom_violin(scale="width")+stat_summary(fun=median,geom="point",size=1)+
+  ggtitle("ICAM1, log10(Ka)")+xlab("variant class")+theme(axis.text.x=element_text(angle=-90,hjust=0))+
+  facet_wrap(~library,nrow=4)
+
+grid.arrange(p1,ncol=1)
+
+#save pdf
+invisible(dev.print(pdf, paste(config$Titeseq_Kds_dir,"/violin-plot_log10Ka-by-target.pdf",sep="")))
+
+dt[,.(library,barcode,variant_class,aa_substitutions,n_aa_substitutions,
+     TiteSeq_avgcount,log10Ka)] %>%
+  mutate_if(is.numeric, round, digits=6) %>%
+  write.csv(file=config$Titeseq_Kds_file, row.names=F)
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
