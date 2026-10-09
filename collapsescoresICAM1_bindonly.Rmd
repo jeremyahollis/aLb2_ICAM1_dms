@@ -119,8 +119,8 @@ dt_final[,mutation:=paste(wildtype,position,mutant,sep=""),by=c("wildtype","posi
 
 dt_final <- unique(dt_final[,.(wildtype,position,mutant,mutation,bind_tot,delta_bind_tot,n_bc_bind_tot,n_libs_bind_tot)])
 
-#add the rep2 bind average
-dt_final[,bind_rep2 := dt_mutant[library=="pool2", mean_bind]]
+#add the rep1 bind average
+dt_final[,bind_rep2 := dt_mutant[library=="pool1", mean_bind]]
 
 #rename some of the columns
 setnames(dt_final,"bind_tot","bind")
