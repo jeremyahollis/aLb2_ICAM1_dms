@@ -1,0 +1,69 @@
+LOCUS       aLIHA                 1016 bp    DNA        linear       23-APR-2024
+DEFINITION  PacBio amplicon for deep mutational scanning of integrin aL High-Affinity I domain
+ACCESSION   None
+VERSION     
+SOURCE      Jeremy Hollis
+  ORGANISM  .
+COMMENT     PacBio amplicon for aL HA I domain libraries.
+COMMENT
+COMMENT     ApEinfo:methylated:1
+FEATURES             Location/Qualifiers
+     termini5        1..33
+                     /locus_tag="termini5"
+                     /label="termini5"
+                     /ApEinfo_label="termini5"
+                     /ApEinfo_fwdcolor="#fefb00"
+                     /ApEinfo_revcolor="green"
+                     /ApEinfo_graphicformat="arrow_data {{0 1 2 0 0 -1} {} 0}
+                     width 5 offset 0"
+     spacer          574..994
+                     /locus_tag="spacer"
+                     /label="spacer"
+                     /ApEinfo_label="spacer"
+                     /ApEinfo_fwdcolor="#fefb00"
+                     /ApEinfo_revcolor="green"
+                     /ApEinfo_graphicformat="arrow_data {{0 1 2 0 0 -1} {} 0}
+                     width 5 offset 0"
+     gene            34..573
+                     /locus_tag="gene"
+                     /label="gene"
+                     /ApEinfo_label="gene"
+                     /ApEinfo_fwdcolor="cyan"
+                     /ApEinfo_revcolor="#00fcff"
+                     /ApEinfo_graphicformat="arrow_data {{0 1 2 0 0 -1} {} 0}
+                     width 5 offset 0"
+     barcode         995..1010
+                     /locus_tag="barcode"
+                     /label="barcode"
+                     /ApEinfo_label="barcode"
+                     /ApEinfo_fwdcolor="#00f900"
+                     /ApEinfo_revcolor="green"
+                     /ApEinfo_graphicformat="arrow_data {{0 1 2 0 0 -1} {} 0}
+                     width 5 offset 0"
+     termini3        1011..1016
+                     /locus_tag="termini3"
+                      /label="termini3"
+                     /ApEinfo_label="termini3"
+                     /ApEinfo_fwdcolor="#fefb00"
+                     /ApEinfo_revcolor="green"
+                     /ApEinfo_graphicformat="arrow_data {{0 1 2 0 0 -1} {} 0}
+                     width 5 offset 0"
+ORIGIN
+        1 GGCCGCGGAG GCGGAGGGTC GGCTAGCCAT ATGGGCAACG TGGATCTGGT GTTCCTGTTT
+       61 GACGGCTCCA TGTCTCTGCA GCCTGATGAG TTTCAGAAGA TCCTGGATTT CATGAAGGAC
+      121 GTGATGAAGA AGCTGTCCAA TACCTCTTAT CAGTTTGCCG CCGTGCAGTT CAGCACATCC
+      181 TACAAGACCG AGTTCGACTT CAGCGACTAT GTGAAGAGAA AGGACCCCGA TGCCCTGCTG
+      241 AAGCACGTGA AGCACATGCT GCTGCTGACC AACACATTCG GCGCCATCAA TTACGTGGCC
+      301 ACCGAGGTGT TTCGCGAGGA GCTGGGAGCA AGGCCTGACG CAACAAAGGT GCTGATCATC
+      361 ATCACAGATG GCGAGGCCAC CGACTCTGGC AACATCGATG CCGCCAAGGA CATCATCAGG
+      421 TATATCATCG GCATCGGCAA GCACTTCCAG ACAAAGGAGA GCCAGGAGAC CCTGCACAAG
+      481 TTTGCCAGCA AGCCCGCCTC CGAGTTTGTG TGTATCCTGG ATACCTTCGA GTGTCTGAAG
+      541 GACCTGTTTA CAGAGCTGCA GAAGAAGATC TACCTCGAGG GGGGCGGTTC CGAACAAAAG
+      601 CTTATTTCTG AAGAGGACTT GTAATAGAGA TCTGATAACA ACAGTGTAGA TGTAACAAAA
+      661 TCGACTTTGT TCCCACTGTA CTTTTAGCTC GTACAAAATA CAATATACTT TTCATTTCTC
+      721 CGTAAACAAC ATGTTTTCCC ATGTAATATC CTTTTCTATT TTTCGTTCCG TTACCAACTT
+      781 TACACATACT TTATATAGCT ATTCACTTCT ATACACTAAA AAACTAAGAC AATTTTAATT
+      841 TTGCTGCCTG CCATATTTCA ATTTGTTATA AATTCCTATA ATTTATCCTA TTAGTAGCTA
+      901 AAAAAAGATg aatgtgaatc gaatcctaag agaattAATG ATACGGCGAC CACCGAGATC
+      961 TACACTCTTT CCCTACACGA CGCTCTTCCG ATCTNNNNNN NNNNNNNNNN GCGGCC
+//

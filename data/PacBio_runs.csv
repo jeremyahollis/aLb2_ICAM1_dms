@@ -1,0 +1,3 @@
+library,bg,run,ccs
+pool1,aLIHA,214227_A,/fh/fast/campbell_m/SR/ngs/pacbio/24031_JeremyHollis/r64272e_20240321_214227/1_A01/bc2007--bc2007/m64272e_240321_215736.hifi_reads.bc2007--bc2007.fastq.gz
+pool2,aLIHA,214227_A,/fh/fast/campbell_m/SR/ngs/pacbio/24031_JeremyHollis/r64272e_20240321_214227/1_A01/bc2008--bc2008/m64272e_240321_215736.hifi_reads.bc2008--bc2008.fastq.gz
