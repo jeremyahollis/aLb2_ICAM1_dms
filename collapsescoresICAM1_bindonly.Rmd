@@ -167,7 +167,7 @@ p1 <- ggplot(temp[measurement=="delta_bind",],
                         limits=c(-5,2),
                         values=c(0/7,1/7,3/7,5/7,6/7,7/7),
                         na.value="yellow") +
-  scale_x_continuous(expand=c(0,0),breaks=c(331,seq(335,530,by=5))) +
+  scale_x_continuous(expand=c(0,0),breaks=c(128,seq(130,310,by=5))) +
   labs(x="",y="") +
   theme_classic(base_size=9) +
   coord_equal() +
